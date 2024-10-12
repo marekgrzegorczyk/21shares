@@ -122,6 +122,8 @@ def dashboard():
             # Added uuid to the key to avoid StreamlitDuplicateElementKey error
             # Key handling does not allow manipulation of the dashboarded because it creates a new version every selected frequency
             plot_placeholder.plotly_chart(fig, key=f"real_time_chart")
+            # plot_placeholder.matplotlib.pyplot.draw(fig, key=f"real_time_chart")
+
             # User Experience: Display the last updated time
             fetch_info_placeholder.info(
                 f"Chart updated at {time.localtime().tm_hour}:{time.localtime().tm_min}:{time.localtime().tm_sec}"

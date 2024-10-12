@@ -1,6 +1,6 @@
 streamlit==1.39.0
-ccxt==4.4.15
 pandas==2.2.3
 plotly==5.24.1
 numpy==2.0.2
+ccxt==4.4.15
 orjson==3.10.7

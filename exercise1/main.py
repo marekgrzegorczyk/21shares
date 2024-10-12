@@ -1,188 +1,172 @@
+import matplotlib.pyplot as plt
 import streamlit as st
+import yfinance as yf
+
+st.set_page_config(
+    page_title="21Shares Streamlit Exercise",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        "Get Help": "https://www.linkedin.com/in/marek-grzegorczyk-a2b8a420a/",
+        "Report a bug": "mailto:marekgrzegorczykk93@gmail.com",
+        "About": "# 21Shares Streamlit Exercise by Marek Grzegorczyk",
+    },
+)
 
 logo_path = "static/21co.png"
 
-# results_data = {
-#     "KPI": ["startDate", "EndDate", "cumulativeRet", "annRet",
-#             "sharpeRatio",
-#             "sortinoRatio", "infoRatio", "TrackingError",
-#             "maxDrawdown",
-#             "VaR95 (monthly)",
-#             "VaR95 (annually)", "1Y", "3Y", "5Y", "alpha (vs SP500)",
-#             "beta (vs SP500)", "turnover (ann)"],
-#     "Benchmark": ["12/13/2016", "3/13/2022", "170.7%", "10.9%", "0.94",
-#                   "1.91", "1.14", "-", "-11.2%", "-4.2%",
-#                   "-1.2%", "-14.8%", "3.8%", "5.7%", "0.0%", "0.62%",
-#                   "9.9%"]
-# }
+
+# Function to fetch data from yfinance
+@st.cache_data(show_spinner=True)
+def fetch_asset_data(ticker):
+    try:
+        asset = yf.Ticker(ticker)
+        return asset.info["longName"], asset.info["symbol"], asset.info["quoteType"]
+    except Exception as e:
+        st.error(body=f"Error fetching data for {ticker}: {e}")
+        return None, None, None
 
 
-equity_data = {
-    "Asset": ["AAPL", "NVDA", "GOOG"],
-    "Type": ["Stock", "Stock", "Stock"],
-    "Allocation": [32.43, 0.0, 0.0]
-}
-fixed_income_data = {
-    "Asset": ["TLT", "JNK", "GOOG"],
-    "Type": ["Fixed Income", "Fixed Income", "Fixed Income"],
-    "Allocation": [20.00, 12.00, 2.00]
-}
-commodities_data = {
-    "Asset": ["GLD", "USOIL", "XAG"],
-    "Type": ["Commodity", "Commodity", "Commodity"],
-    "Allocation": [0.00, 3.00, 0.00]
-}
-crypto_data = {
-    "Asset": ["BTC", "ETH", "STX"],
-    "Type": ["Crypto", "Crypto", "Crypto"],
-    "Allocation": [0.00, 0.00, 0.00]
-}
-
-asset_options = {
-    "Equity": ["AAPL", "NVDA", "GOOG"],
-    "Fixed Income": ["US Bonds", "Corporate Bonds"],
-    "Commodities": ["Gold", "Oil", "Silver"],
-    "Crypto": ["Bitcoin", "Ethereum", "Litecoin"]
-}
-
-st.set_page_config(layout="wide", page_title="Portfolio Simulator",
-                   page_icon=":chart_with_upwards_trend:",
-                   initial_sidebar_state="collapsed")
-
-
-@st.dialog(title="Add Asset", width="large")
-def add_asset_dialog(dialog_selectbox_data):
-    category_select = st.multiselect(
-        label="Select Category",
-        label_visibility="collapsed",
-        placeholder="Select Category",
-        options=["Equity", "Fixed Income", "Commodities", "Crypto"],
-        help="Select the category of the asset you want to add.",
-        key="category_select"
-    )
-
-    if category_select:
-        for category in category_select:
-            st.divider()
-            with st.container(border=True):
-                category_lower = category.title().replace(" ", "_").lower()
-                st.subheader(f"{category} Assets")
-                st.multiselect(
-                    label=f"Select {category} Asset",
-                    options=asset_options.get(category, []),
-                    key=f"{category_lower}_asset_select"
-                )
-            dialog_selectbox_data.append((category_select, category))
-    with st.form(key="add_asset_form"):
-        st.form_submit_button("Save")
-
-
-def df_in_container(data, subheader_text):
-    with st.container(border=True):
-        col1, col2, col3 = st.columns([3, 1, 1], vertical_alignment="bottom")
-
-        with col1:
-            st.write(subheader_text)
-
-        with col2:
-            st.number_input(label="", value=0.1, min_value=0.1,
-                            max_value=100.0,
-                            step=0.1, format="%0.1f",
-                            key=f"input_{subheader_text}",
-                            disabled=True,
-                            )
-        with col3:
-            st.info(body="", icon="➕")
-
-        st.dataframe(data, hide_index=True, use_container_width=True,
-                     selection_mode="single")
-
-
+# Define the main dashboard function
 def dashboard():
-    dialog_selectbox_data = []
     header_col1, header_col2 = st.columns([1, 10], vertical_alignment="center")
     with header_col1:
-        st.image(logo_path, )
+        st.image(logo_path)
     with header_col2:
-        st.header("Portfolio Simulator")
+        st.header(body="Portfolio Simulator")
 
-    col1, col2 = st.columns([1, 3])
+    main_col1, main_col2 = st.columns([2, 5])
 
-    with col1:
-        with st.container(border=True):
-            header_col1, header_col2 = st.columns(
-                [2, 1], vertical_alignment="center")
-            with header_col1:
-                st.write("Portfolio composition")
-            with header_col2:
-                if st.button("\+ Add Asset", key="add_asset"):
-                    add_asset_dialog(dialog_selectbox_data)
+    # Initialize session state to hold dynamic assets and allocations
+    with main_col1:
+        if "assets" not in st.session_state:
+            st.session_state.assets = {}
 
-            button_col1, button_col2 = st.columns([1, 1])
-            with button_col1:
-                # weighted_value = st.session_state.get(
-                #     "absolute")
-                # absolute_value = st.session_state.get(
-                #     "weighted")
-                st.checkbox("Weighted", key="weighted", value=True,
+        user_allocations = {category: {} for category in st.session_state.assets}
+
+        # Create a form for portfolio inputs
+        with st.form(key="portfolio_form", enter_to_submit=False):
+            form_header_col1, form_header_col2 = st.columns(
+                [2, 1], vertical_alignment="center"
+            )
+            with form_header_col1:
+                st.write("#### Portfolio Composition")
+
+            with form_header_col2:
+                with st.popover(label="\+ Add Asset"):
+                    st.write("#### Add Asset to Portfolio")
+                    new_asset = st.text_input(
+                        label="Add new asset (ticker symbol)", key="new_asset_ticker"
+                    )
+                    if st.form_submit_button(label="Add Asset", type="secondary"):
+                        if new_asset:
+                            # Check if the asset is already in any category
+                            asset_exists = any(
+                                new_asset in assets
+                                for assets in st.session_state.assets.values()
                             )
-            with button_col2:
-                st.checkbox("Absolute", key="absolute",
+                            if asset_exists:
+                                st.error(
+                                    f"Asset {new_asset} already exists in the portfolio!"
+                                )
+                            else:
+                                name, symbol, quote_type = fetch_asset_data(new_asset)
+                                if name and quote_type:
+                                    # Add asset under the correct quoteType (category)
+                                    if quote_type not in st.session_state.assets:
+                                        st.session_state.assets[quote_type] = []
+                                    st.session_state.assets[quote_type].append(
+                                        new_asset
+                                    )
+                                    st.success(body=f"Added {new_asset} ({quote_type})")
+                                    st.rerun()
+                                else:
+                                    st.error(
+                                        body=f"Asset {new_asset} is invalid or could not be fetched!"
+                                    )
+
+            for category in st.session_state.assets:
+                col1, col2 = st.columns(spec=[2, 1], vertical_alignment="bottom")
+                with col1:
+                    st.write(f"#### {category}")
+                with col2:
+                    total_allocation = sum(user_allocations[category].values())
+                    st.text_input(
+                        label="",
+                        disabled=True,
+                        value=f"{total_allocation:.2f}%",
+                        key=f"total_{category}",
+                    )
+
+                # Display current assets in the category
+                if st.session_state.assets[category]:
+                    for asset in st.session_state.assets[category]:
+                        name, symbol, quote_type = fetch_asset_data(asset)
+                        if name and symbol:
+                            col1, col2 = st.columns(
+                                spec=[3, 2], vertical_alignment="bottom"
                             )
-            df_in_container(data=equity_data, subheader_text="🍧 Equity")
+                            with col1:
+                                # Input for allocation
+                                allocation = st.number_input(
+                                    f"{name} ({symbol})",
+                                    min_value=0.0,
+                                    max_value=100.0,
+                                    key=f"allocation_{asset}",
+                                )
+                                user_allocations[category][asset] = allocation
+                            with col2:
+                                if st.form_submit_button(
+                                    label=f"Remove {asset}",
+                                    type="secondary",
+                                    use_container_width=True,
+                                ):
+                                    # Remove the asset from the category after submission
+                                    st.session_state.assets[category].remove(asset)
+                                    # Remove the category if empty after removal of asset
+                                    if len(st.session_state.assets[category]) == 0:
+                                        del st.session_state.assets[category]
+                                    st.rerun()
 
-            df_in_container(data=fixed_income_data,
-                            subheader_text="🍺 Fixed Income")
+            if "show_main_col" not in st.session_state:
+                st.session_state.show_main_col = False
 
-            df_in_container(data=commodities_data,
-                            subheader_text="🍊 Commodities")
+            submitted = st.empty()
+            if len(st.session_state.assets) == 0:
+                st.info(
+                    body="No assets added. Click '+ Add Asset' to add assets to your portfolio."
+                )
+            else:
+                submitted = st.form_submit_button(
+                    label="Save as benchmark portfolio", type="primary"
+                )
+                if submitted:
+                    st.session_state.show_main_col = True
 
-            df_in_container(data=crypto_data, subheader_text="⭐ Crypto")
+    with main_col2:
+        st.write("Main column")
+        if st.session_state.show_main_col:
+            # Generate and display a bar chart of portfolio composition
+            fig, ax = plt.subplots()
+            category_allocations = {
+                category: sum(user_allocations[category].values())
+                for category in st.session_state.assets
+            }
+            ax.bar(category_allocations.keys(), category_allocations.values())
+            ax.set_xlabel("Category")
+            ax.set_ylabel("Allocation (%)")
+            ax.set_title("Benchmark Portfolio Allocation")
 
-            st.button("Save as benchmark portfolio", use_container_width=True)
+            st.pyplot(fig)
 
-    with col2:
-        st.write("col2")
-        st.write(dialog_selectbox_data)
-        #
-        # dates = pd.date_range(start="2023-01-01", periods=365)
-        # spx_data = np.random.normal(loc=0.1, scale=0.05, size=365).cumsum()
-        # benchmark_data = np.random.normal(loc=0.05, scale=0.03,
-        #                                   size=365).cumsum()
-        #
-        # performance_data = pd.DataFrame({
-        #     "Date": dates,
-        #     "SPX": spx_data,
-        #     "Benchmark": benchmark_data
-        # })
-        #
-        # date_options = ["1D", "1W", "1M", "6M", "YTD", "1Y", "Max"]
-        # selected_range = st.selectbox("Select Time Range", date_options)
-        #
-        # if selected_range == "1D":
-        #     filtered_data = performance_data.tail(1)
-        # elif selected_range == "1W":
-        #     filtered_data = performance_data.tail(7)
-        # elif selected_range == "1M":
-        #     filtered_data = performance_data.tail(30)
-        # elif selected_range == "6M":
-        #     filtered_data = performance_data.tail(180)
-        # elif selected_range == "YTD":
-        #     filtered_data = performance_data[
-        #         performance_data["Date"] >= pd.to_datetime("2023-01-01")]
-        # elif selected_range == "1Y":
-        #     filtered_data = performance_data.tail(365)
-        # else:  # "Max"
-        #     filtered_data = performance_data
-        #
-        # # Rysowanie wykresu po filtrowaniu
-        # st.line_chart(filtered_data.set_index("Date"))
-        #
-        # st.header("Results")
-        #
-        # # Wyświetlenie tabeli bez numeracji (index=False)
-        # st.table(pd.DataFrame(results_data).style.hide(axis='index'))
+            # Optionally show raw data (for reference)
+            st.write("## Portfolio Allocations")
+            for category, assets in user_allocations.items():
+                for asset, allocation in assets.items():
+                    st.write(f"{category} - {asset}: {allocation}%")
 
 
+# Main entry point
 if __name__ == "__main__":
     dashboard()
