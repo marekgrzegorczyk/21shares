@@ -1,7 +1,10 @@
-import matplotlib.pyplot as plt
 import streamlit as st
 import yfinance as yf
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 
+# Set up the page configuration for the Streamlit app
 st.set_page_config(
     page_title="21Shares Streamlit Exercise",
     page_icon="📈",
@@ -17,156 +20,243 @@ st.set_page_config(
 logo_path = "static/21co.png"
 
 
-# Function to fetch data from yfinance
+# Fetch asset data from yfinance. Cached to avoid re-fetching the same data repeatedly.
 @st.cache_data(show_spinner=True)
 def fetch_asset_data(ticker):
+    """
+    Fetch asset data using the yfinance API. Returns the long name, symbol, and type of the asset.
+    """
     try:
         asset = yf.Ticker(ticker)
-        return asset.info["longName"], asset.info["symbol"], asset.info["quoteType"]
+        return (
+            asset.info.get("longName"),
+            asset.info.get("symbol"),
+            asset.info.get("quoteType"),
+        )
     except Exception as e:
-        st.error(body=f"Error fetching data for {ticker}: {e}")
+        st.error(f"Error fetching data for {ticker}: {e}")
         return None, None, None
 
 
-# Define the main dashboard function
+# The main function that runs the dashboard.
 def dashboard():
+    """
+    This is the main logic for the portfolio simulator. It handles rendering the UI for adding/removing assets
+    and allocating portfolio weights.
+    """
+    # Check if the session state needs to be initialized
+    if "show_main_col" not in st.session_state:
+        st.session_state.show_main_col = False
+
+    # Render header with the logo and title
     header_col1, header_col2 = st.columns([1, 10], vertical_alignment="center")
     with header_col1:
         st.image(logo_path)
     with header_col2:
-        st.header(body="Portfolio Simulator")
+        st.header("Portfolio Simulator")
 
+    # Main layout with two columns: one for input and one for visualization
     main_col1, main_col2 = st.columns([2, 5])
 
-    # Initialize session state to hold dynamic assets and allocations
+    # Left Column: Handle asset input and portfolio management
     with main_col1:
+        # If assets aren't initialized in the session state, create an empty dictionary
         if "assets" not in st.session_state:
             st.session_state.assets = {}
 
+        # This will store the user's allocations for each asset category (e.g., stock, ETF, etc.)
         user_allocations = {category: {} for category in st.session_state.assets}
 
-        # Create a form for portfolio inputs
+        # Form to manage portfolio assets
         with st.form(key="portfolio_form", enter_to_submit=False):
+            # Header for portfolio form
             form_header_col1, form_header_col2 = st.columns(
                 [2, 1], vertical_alignment="center"
             )
             with form_header_col1:
                 st.write("#### Portfolio Composition")
 
+            # Add Asset functionality inside a popover
             with form_header_col2:
-                with st.popover(label="\+ Add Asset"):
+                with st.popover(label="+ Add Asset"):
                     st.write("#### Add Asset to Portfolio")
                     new_asset = st.text_input(
-                        label="Add new asset (ticker symbol)", key="new_asset_ticker"
+                        "Add new asset (ticker symbol)", key="new_asset_ticker"
                     )
+
                     if st.form_submit_button(label="Add Asset", type="secondary"):
-                        if new_asset:
-                            # Check if the asset is already in any category
-                            asset_exists = any(
-                                new_asset in assets
-                                for assets in st.session_state.assets.values()
-                            )
-                            if asset_exists:
-                                st.error(
-                                    f"Asset {new_asset} already exists in the portfolio!"
-                                )
+                        if not new_asset:
+                            st.error("Please enter a ticker symbol.")
+                        elif any(
+                            new_asset in assets
+                            for assets in st.session_state.assets.values()
+                        ):
+                            st.error(f"Asset {new_asset} is already in the portfolio!")
+                        else:
+                            name, symbol, quote_type = fetch_asset_data(new_asset)
+                            if not name or not quote_type:
+                                st.error(f"Asset {new_asset} could not be found.")
                             else:
-                                name, symbol, quote_type = fetch_asset_data(new_asset)
-                                if name and quote_type:
-                                    # Add asset under the correct quoteType (category)
-                                    if quote_type not in st.session_state.assets:
-                                        st.session_state.assets[quote_type] = []
-                                    st.session_state.assets[quote_type].append(
-                                        new_asset
-                                    )
-                                    st.success(body=f"Added {new_asset} ({quote_type})")
-                                    st.rerun()
-                                else:
-                                    st.error(
-                                        body=f"Asset {new_asset} is invalid or could not be fetched!"
-                                    )
+                                # Add the asset under the correct category (e.g., Stock, ETF)
+                                if quote_type not in st.session_state.assets:
+                                    st.session_state.assets[quote_type] = []
+                                st.session_state.assets[quote_type].append(new_asset)
+                                st.success(f"Added {new_asset} ({quote_type})")
+                                st.rerun()
 
-            for category in st.session_state.assets:
-                col1, col2 = st.columns(spec=[2, 1], vertical_alignment="bottom")
-                with col1:
-                    st.write(f"#### {category}")
-                with col2:
-                    total_allocation = sum(user_allocations[category].values())
-                    st.text_input(
+            # If there are assets in the portfolio, show the allocation inputs
+            if st.session_state.assets:
+                # Let the user choose how they want to allocate (percentage or absolute value)
+                with st.container(border=True):
+                    allocation_type = st.radio(
                         label="",
-                        disabled=True,
-                        value=f"{total_allocation:.2f}%",
-                        key=f"total_{category}",
+                        options=["% Weighted", "$ Absolute"],
+                        horizontal=True,
+                        key="allocation_type",
                     )
 
-                # Display current assets in the category
-                if st.session_state.assets[category]:
-                    for asset in st.session_state.assets[category]:
-                        name, symbol, quote_type = fetch_asset_data(asset)
-                        if name and symbol:
-                            col1, col2 = st.columns(
-                                spec=[3, 2], vertical_alignment="bottom"
-                            )
+                # Iterate through each asset category and render its assets
+                for category in st.session_state.assets:
+                    with st.container(border=True):
+                        col1, col2 = st.columns([2, 1], vertical_alignment="bottom")
+                        with st.container(border=True):
                             with col1:
-                                # Input for allocation
-                                allocation = st.number_input(
-                                    f"{name} ({symbol})",
-                                    min_value=0.0,
-                                    max_value=100.0,
-                                    key=f"allocation_{asset}",
-                                )
-                                user_allocations[category][asset] = allocation
+                                st.write(f"#### {category}")
                             with col2:
-                                if st.form_submit_button(
-                                    label=f"Remove {asset}",
-                                    type="secondary",
-                                    use_container_width=True,
-                                ):
-                                    # Remove the asset from the category after submission
-                                    st.session_state.assets[category].remove(asset)
-                                    # Remove the category if empty after removal of asset
-                                    if len(st.session_state.assets[category]) == 0:
-                                        del st.session_state.assets[category]
-                                    st.rerun()
+                                # Sum up total allocation per category
+                                total_allocation = sum(
+                                    user_allocations[category].values()
+                                )
+                                st.text_input(
+                                    "",
+                                    value=f"{total_allocation:.2f}%",
+                                    disabled=True,
+                                    key=f"total_{category}",
+                                )
 
-            if "show_main_col" not in st.session_state:
-                st.session_state.show_main_col = False
+                            # Display assets within the category
+                            for asset in st.session_state.assets[category]:
+                                name, symbol, quote_type = fetch_asset_data(asset)
+                                if (
+                                    name and symbol
+                                ):  # Only display if data fetch is successful
+                                    col1, col2 = st.columns(
+                                        [3, 2], vertical_alignment="bottom"
+                                    )
+                                    with col1:
+                                        # User input for asset allocation
+                                        allocation = st.number_input(
+                                            f"{name} ({symbol})",
+                                            min_value=0.0,
+                                            max_value=100.0,
+                                            key=f"allocation_{asset}",
+                                        )
+                                        user_allocations[category][asset] = allocation
+                                    with col2:
+                                        # Button to remove asset
+                                        if st.form_submit_button(
+                                            label=f"Remove {asset.upper()}",
+                                            type="secondary",
+                                            use_container_width=True,
+                                        ):
+                                            st.session_state.assets[category].remove(
+                                                asset
+                                            )
+                                            # Clean up empty categories
+                                            if not st.session_state.assets[category]:
+                                                del st.session_state.assets[category]
+                                            st.rerun()
 
-            submitted = st.empty()
-            if len(st.session_state.assets) == 0:
-                st.info(
-                    body="No assets added. Click '+ Add Asset' to add assets to your portfolio."
+                # Remove all assets or submit the portfolio
+                remove_all_assets = st.form_submit_button(
+                    label="Remove All Assets", type="primary", use_container_width=True
                 )
-            else:
                 submitted = st.form_submit_button(
-                    label="Save as benchmark portfolio", type="primary"
+                    label="Save as benchmark portfolio",
+                    type="primary",
+                    use_container_width=True,
                 )
+
+                # Clear the portfolio
+                if remove_all_assets:
+                    st.session_state.show_main_col = False
+                    st.session_state.assets.clear()
+                    st.rerun()
+
+                # Show the simulator if the user submits the portfolio
                 if submitted:
                     st.session_state.show_main_col = True
+            else:
+                # No assets yet, prompt the user to add some
+                st.info("No assets added. Click '+ Add Asset' to build your portfolio.")
 
+    # Right Column: This will eventually show the portfolio simulator once the user has added assets
     with main_col2:
-        st.write("Main column")
-        if st.session_state.show_main_col:
-            # Generate and display a bar chart of portfolio composition
-            fig, ax = plt.subplots()
-            category_allocations = {
-                category: sum(user_allocations[category].values())
-                for category in st.session_state.assets
-            }
-            ax.bar(category_allocations.keys(), category_allocations.values())
-            ax.set_xlabel("Category")
-            ax.set_ylabel("Allocation (%)")
-            ax.set_title("Benchmark Portfolio Allocation")
+        with st.container(border=True):
 
-            st.pyplot(fig)
+            # if st.session_state.show_main_col:
+            st.write("#### Performance")
 
-            # Optionally show raw data (for reference)
-            st.write("## Portfolio Allocations")
-            for category, assets in user_allocations.items():
-                for asset, allocation in assets.items():
-                    st.write(f"{category} - {asset}: {allocation}%")
+            # Create a placeholder chart
+            dates = pd.date_range(start="2023-01-01", periods=12, freq="M")
+            placeholder_performance = np.zeros(len(dates))
+
+            # Create Plotly figure
+            fig = go.Figure()
+
+            # Add a line that remains at zero
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=placeholder_performance,
+                    mode="lines",
+                    name="Performance",
+                    line=dict(color="grey", width=2, dash="dash"),
+                )
+            )
+
+            # Add annotation to inform the user
+            fig.add_annotation(
+                text="Add assets to generate the chart",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+                showarrow=True,
+                font=dict(size=16, color="grey"),
+            )
+
+            # Update layout to match the clean style
+            fig.update_layout(
+                # title="Performance",
+                xaxis_title="Date",
+                yaxis_title="Performance (%)",
+                template="simple_white",
+                showlegend=False,
+                margin=dict(l=20, r=20, t=40, b=20),
+                height=400,
+            )
+
+            # Update the x-axis to show date formatting
+            fig.update_xaxes(
+                tickformat="%b %Y",
+                showgrid=False,
+            )
+
+            # Update y-axis for percentages
+            fig.update_yaxes(
+                ticksuffix="%",
+                showgrid=True,
+                gridcolor="lightgrey",
+            )
+
+            # Display chart in Streamlit
+            st.plotly_chart(fig, use_container_width=True)
+
+        with st.container(border=True):
+            st.write("#### Results ")
 
 
-# Main entry point
+# Run the app
 if __name__ == "__main__":
     dashboard()
