@@ -1,8 +1,8 @@
-import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import streamlit as st
 
 # Set up the page configuration for the Streamlit app
 st.set_page_config(
@@ -48,6 +48,12 @@ def dashboard():
     if "show_main_col" not in st.session_state:
         st.session_state.show_main_col = False
 
+    if "total_allocation" not in st.session_state:
+        st.session_state.total_allocation = 0.0
+
+    if "grand_total_allocation" not in st.session_state:
+        st.session_state.grand_total_allocation = 0.0
+
     # Render header with the logo and title
     header_col1, header_col2 = st.columns([1, 10], vertical_alignment="center")
     with header_col1:
@@ -68,7 +74,7 @@ def dashboard():
         user_allocations = {category: {} for category in st.session_state.assets}
 
         # Form to manage portfolio assets
-        with st.form(key="portfolio_form", enter_to_submit=False):
+        with st.container(border=True):
             # Header for portfolio form
             form_header_col1, form_header_col2 = st.columns(
                 [2, 1], vertical_alignment="center"
@@ -84,7 +90,7 @@ def dashboard():
                         "Add new asset (ticker symbol)", key="new_asset_ticker"
                     )
 
-                    if st.form_submit_button(label="Add Asset", type="secondary"):
+                    if st.button(label="Add Asset", type="secondary"):
                         if not new_asset:
                             st.error("Please enter a ticker symbol.")
                         elif any(
@@ -115,46 +121,52 @@ def dashboard():
                         key="allocation_type",
                     )
 
+                # Initialize grand total allocation at the beginning of every render cycle
+                st.session_state.grand_total_allocation = 0.0
+
                 # Iterate through each asset category and render its assets
                 for category in st.session_state.assets:
                     with st.container(border=True):
                         col1, col2 = st.columns([2, 1], vertical_alignment="bottom")
+
                         with st.container(border=True):
                             with col1:
                                 st.write(f"#### {category}")
                             with col2:
                                 # Sum up total allocation per category
-                                total_allocation = sum(
-                                    user_allocations[category].values()
-                                )
-                                st.text_input(
-                                    "",
-                                    value=f"{total_allocation:.2f}%",
-                                    disabled=True,
-                                    key=f"total_{category}",
-                                )
+                                total_allocation_input = st.empty()
 
                             # Display assets within the category
                             for asset in st.session_state.assets[category]:
                                 name, symbol, quote_type = fetch_asset_data(asset)
+
                                 if (
                                     name and symbol
                                 ):  # Only display if data fetch is successful
+
+                                    # Initialize session state for each asset's allocation if not already set
+                                    if f"allocation_{asset}" not in st.session_state:
+                                        st.session_state[f"allocation_{asset}"] = 0.0
+
                                     col1, col2 = st.columns(
                                         [3, 2], vertical_alignment="bottom"
                                     )
                                     with col1:
-                                        # User input for asset allocation
+                                        # Use the value from st.session_state to initialize the widget
                                         allocation = st.number_input(
                                             f"{name} ({symbol})",
                                             min_value=0.0,
                                             max_value=100.0,
+                                            value=st.session_state[
+                                                f"allocation_{asset}"
+                                            ],
                                             key=f"allocation_{asset}",
                                         )
                                         user_allocations[category][asset] = allocation
+
                                     with col2:
                                         # Button to remove asset
-                                        if st.form_submit_button(
+                                        if st.button(
                                             label=f"Remove {asset.upper()}",
                                             type="secondary",
                                             use_container_width=True,
@@ -167,15 +179,41 @@ def dashboard():
                                                 del st.session_state.assets[category]
                                             st.rerun()
 
+                        # Calculate total allocation for the category
+                        with st.container(border=True):
+                            col1, col2 = st.columns([2, 1], vertical_alignment="bottom")
+                            with col1:
+                                st.write(f"Total Allocation in {category}")
+                            with col2:
+                                st.session_state.total_allocation = sum(
+                                    user_allocations[category].values()
+                                )
+                                total_allocation_input = st.text_input(
+                                    label="",
+                                    value=f"{st.session_state.total_allocation:.2f}%",
+                                    disabled=True,
+                                    key=f"total_{category}",
+                                )
+
+                        # Add this category's total allocation to the grand total
+                        st.session_state.grand_total_allocation += (
+                            st.session_state.total_allocation
+                        )
+                grand_total_exceeded = st.session_state.grand_total_allocation > 100.0
                 # Remove all assets or submit the portfolio
-                remove_all_assets = st.form_submit_button(
+                remove_all_assets = st.button(
                     label="Remove All Assets", type="primary", use_container_width=True
                 )
-                submitted = st.form_submit_button(
+                submitted = st.button(
                     label="Save as benchmark portfolio",
                     type="primary",
                     use_container_width=True,
+                    disabled=grand_total_exceeded,
                 )
+                if grand_total_exceeded:
+                    st.error(
+                        "Total allocation across all assets exceeds 100%. Please adjust to continue."
+                    )
 
                 # Clear the portfolio
                 if remove_all_assets:
@@ -186,6 +224,17 @@ def dashboard():
                 # Show the simulator if the user submits the portfolio
                 if submitted:
                     st.session_state.show_main_col = True
+
+                with st.container(border=True):
+                    col1, col2 = st.columns([2, 1], vertical_alignment="bottom")
+                    with col1:
+                        st.write("Grand Total Allocation Across All Categories")
+                    with col2:
+                        st.text_input(
+                            label="",
+                            value=f"{st.session_state.grand_total_allocation:.2f}%",
+                            disabled=True,
+                        )
             else:
                 # No assets yet, prompt the user to add some
                 st.info("No assets added. Click '+ Add Asset' to build your portfolio.")
@@ -193,65 +242,8 @@ def dashboard():
     # Right Column: This will eventually show the portfolio simulator once the user has added assets
     with main_col2:
         with st.container(border=True):
-
             # if st.session_state.show_main_col:
             st.write("#### Performance")
-
-            # Create a placeholder chart
-            dates = pd.date_range(start="2023-01-01", periods=12, freq="M")
-            placeholder_performance = np.zeros(len(dates))
-
-            # Create Plotly figure
-            fig = go.Figure()
-
-            # Add a line that remains at zero
-            fig.add_trace(
-                go.Scatter(
-                    x=dates,
-                    y=placeholder_performance,
-                    mode="lines",
-                    name="Performance",
-                    line=dict(color="grey", width=2, dash="dash"),
-                )
-            )
-
-            # Add annotation to inform the user
-            fig.add_annotation(
-                text="Add assets to generate the chart",
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                showarrow=True,
-                font=dict(size=16, color="grey"),
-            )
-
-            # Update layout to match the clean style
-            fig.update_layout(
-                # title="Performance",
-                xaxis_title="Date",
-                yaxis_title="Performance (%)",
-                template="simple_white",
-                showlegend=False,
-                margin=dict(l=20, r=20, t=40, b=20),
-                height=400,
-            )
-
-            # Update the x-axis to show date formatting
-            fig.update_xaxes(
-                tickformat="%b %Y",
-                showgrid=False,
-            )
-
-            # Update y-axis for percentages
-            fig.update_yaxes(
-                ticksuffix="%",
-                showgrid=True,
-                gridcolor="lightgrey",
-            )
-
-            # Display chart in Streamlit
-            st.plotly_chart(fig, use_container_width=True)
 
         with st.container(border=True):
             st.write("#### Results ")
