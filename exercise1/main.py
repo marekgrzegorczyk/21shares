@@ -8,7 +8,7 @@ from fig import (
 from processing import calculate_metrics, calculate_weighted_returns
 from query import fetch_asset_data, fetch_benchmark_data
 
-logo_path = "static/21co.png"
+logo_path = "../public/Logo_Final_Orange.png"
 
 # Set up the page configuration for the Streamlit app
 st.set_page_config(
