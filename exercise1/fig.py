@@ -1,18 +1,15 @@
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-import pandas as pd
 
 
 def placeholder_chart():
-    # Create a placeholder chart
     dates = pd.date_range(start="2023-01-01", periods=12, freq="M")
     placeholder_performance = np.zeros(len(dates))
 
-    # Create Plotly figure
     fig = go.Figure()
 
-    # Add a line that remains at zero
     fig.add_trace(
         go.Scatter(
             x=dates,
@@ -23,7 +20,6 @@ def placeholder_chart():
         )
     )
 
-    # Add annotation to inform the user
     fig.add_annotation(
         text="Add assets to generate the chart",
         xref="paper",
@@ -34,7 +30,6 @@ def placeholder_chart():
         font=dict(size=16, color="grey"),
     )
 
-    # Update layout to match the clean style
     fig.update_layout(
         # title="Performance",
         xaxis_title="Date",
@@ -45,83 +40,88 @@ def placeholder_chart():
         height=400,
     )
 
-    # Update the x-axis to show date formatting
     fig.update_xaxes(
         tickformat="%b %Y",
         showgrid=False,
     )
 
-    # Update y-axis for percentages
     fig.update_yaxes(
         ticksuffix="%",
         showgrid=True,
         gridcolor="lightgrey",
     )
 
-    # Display chart in Streamlit
     st.plotly_chart(fig, use_container_width=True)
 
 
-# def plot_performance_chart(user_assets, selected_filter):
-#     spx_ticker = "^GSPC"  # S&P 500 Index
-#
-#     selected_period = filter_periods[selected_filter]
-#     spx_prices = get_historical_data(spx_ticker, selected_period)
-#     benchmark_prices = sum(
-#         [get_historical_data(ticker, selected_period) for ticker in user_assets]
-#     ) / len(user_assets)
-#
-#     # Calculate performance for SPX and Benchmark
-#     spx_performance = calculate_performance(spx_prices)
-#     benchmark_performance = calculate_performance(benchmark_prices)
-#
-#     # Create Plotly figure
-#     fig = go.Figure()
-#
-#     # Add SPX performance line
-#     fig.add_trace(
-#         go.Scatter(
-#             x=spx_performance.index,
-#             y=spx_performance.values,
-#             mode="lines",
-#             name="SPX",
-#             line=dict(color="orange", width=2),
-#         )
-#     )
-#
-#     # Add Benchmark performance line
-#     fig.add_trace(
-#         go.Scatter(
-#             x=benchmark_performance.index,
-#             y=benchmark_performance.values,
-#             mode="lines",
-#             name="Benchmark",
-#             line=dict(color="black", width=2),
-#         )
-#     )
-#
-#     # Update layout to match the clean style
-#     fig.update_layout(
-#         xaxis_title="Date",
-#         yaxis_title="Performance (%)",
-#         template="simple_white",
-#         showlegend=True,
-#         margin=dict(l=20, r=20, t=40, b=20),
-#         height=400,
-#     )
-#
-#     # Update the x-axis to show date formatting
-#     fig.update_xaxes(
-#         tickformat=("%b %Y" if selected_filter not in ["1D", "1W"] else "%H:%M"),
-#         showgrid=False,
-#     )
-#
-#     # Update y-axis for percentages
-#     fig.update_yaxes(
-#         ticksuffix="%",
-#         showgrid=True,
-#         gridcolor="lightgrey",
-#     )
-#
-#     # Display chart in Streamlit
-#     st.plotly_chart(fig, use_container_width=True)
+def plot_cumulative_returns(portfolio_returns, benchmark_returns, benchmark_name):
+    """
+    Generates a Plotly chart showing cumulative returns of the portfolio
+    compared to the benchmark (S&P 500).
+    """
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=portfolio_returns.index,
+            y=(1 + portfolio_returns).cumprod() * 100,
+            mode="lines",
+            name="Portfolio",
+            line=dict(color="black"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=benchmark_returns.index,
+            y=(1 + benchmark_returns).cumprod() * 100,
+            mode="lines",
+            name=benchmark_name,
+            line=dict(color="#ff6a1f"),
+        )
+    )
+    fig.update_layout(
+        title="",
+        xaxis_title="Date",
+        yaxis_title="Cumulative Return (%)",
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    )
+    return st.plotly_chart(fig, use_container_width=True)
+
+
+# @st.cache_data(show_spinner=True)
+def display_metrics_table(metrics):
+    """
+    Display the calculated metrics in a Streamlit table, formatted
+    to resemble the provided image.
+    """
+    # Create a list of tuples (metric_name, metric_value)
+    metric_list = [
+        ("startDate", "-"),  # Placeholder for start date
+        ("EndDate", pd.Timestamp.today().strftime("%d/%m/%Y")),
+        ("cumulativeRet", f"{metrics['Cumulative Returns']:.1f}%"),
+        ("annRet", f"{metrics['Annual Returns']:.1f}%"),
+        ("annVol", f"{metrics['Annual Volatility']:.1f}%"),
+        ("sharpeRatio", f"{metrics['Sharpe Ratio']:.2f}"),
+        ("sortinoRatio", f"{metrics['Sortino Ratio']:.2f}"),
+        ("infoRatio", f"{metrics['Information Ratio']:.2f}"),
+        (
+            "Tracking Ratio",
+            f"{metrics['Tracking Error']:.1f}%",
+        ),  # Using Tracking Error here
+        ("maxDrawdown", f"{metrics['Max Drawdown']:.1f}%"),
+        ("VaR95 (monthly)", "-"),  # Placeholder for monthly VaR
+        ("VaR95 (annually)", "-"),  # Placeholder for annual VaR
+        # ("HitRatio", f"{metrics['Hit Ratio']:.0f}%"),
+        ("1Y_RollingHitRatior", "-"),  # Placeholder
+        ("3Y_RollingHitRatior", "-"),  # Placeholder
+        ("maxRelativeDrawd", f"{metrics['Relative Drawdown']:.1f}%"),
+        ("1Y", "-"),  # Placeholder
+        ("3Y", "-"),  # Placeholder
+        ("5Y", "-"),  # Placeholder
+        ("alpha (vs SP500)", f"{metrics['Alpha']:.1f}%"),
+        ("beta (vs SP500)", f"{metrics['Beta']:.1f}%"),
+        ("turnover (ann)", f"{metrics['Turnover Rate']:.1f}%"),
+    ]
+
+    # Create a DataFrame for better display
+    metrics_df = pd.DataFrame(metric_list, columns=["KPI", "Benchmark"])
+    st.dataframe(data=metrics_df, hide_index=True, use_container_width=True, height=775)

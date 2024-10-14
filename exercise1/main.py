@@ -1,13 +1,14 @@
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
 import streamlit as st
-from datetime import datetime, timedelta
 
-from processing import calculate_metrics
-from fig import placeholder_chart
+from fig import (
+    placeholder_chart,
+    plot_cumulative_returns,
+    display_metrics_table,
+)
+from processing import calculate_metrics, calculate_weighted_returns
+from query import fetch_asset_data, fetch_benchmark_data
 
+logo_path = "static/21co.png"
 
 # Set up the page configuration for the Streamlit app
 st.set_page_config(
@@ -21,104 +22,6 @@ st.set_page_config(
         "About": "# 21Shares Streamlit Exercise by Marek Grzegorczyk",
     },
 )
-
-logo_path = "static/21co.png"
-
-
-@st.cache_data(show_spinner=True)
-def plot_cumulative_returns(portfolio_returns, benchmark_returns, benchmark_name):
-    """
-    Generates a Plotly chart showing cumulative returns of the portfolio
-    compared to the benchmark (S&P 500).
-    """
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=portfolio_returns.index,
-            y=(1 + portfolio_returns).cumprod() * 100,
-            mode="lines",
-            name="Portfolio",
-            line=dict(color="black"),
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=benchmark_returns.index,
-            y=(1 + benchmark_returns).cumprod() * 100,
-            mode="lines",
-            name=benchmark_name,
-            line=dict(color="#ff6a1f"),
-        )
-    )
-    fig.update_layout(
-        title="",
-        xaxis_title="Date",
-        yaxis_title="Cumulative Return (%)",
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-# Fetch asset data from yfinance
-@st.cache_data(show_spinner=True)
-def fetch_asset_data(ticker):
-    """
-    Fetch asset data using the yfinance API. Returns the long name, symbol, and type of the asset.
-    """
-    try:
-        asset = yf.Ticker(ticker)
-        return (
-            asset.info.get("longName"),
-            asset.info.get("symbol"),
-            asset.info.get("quoteType"),
-        )
-    except Exception as e:
-        st.error(f"Error fetching data for {ticker}: {e}")
-        return None, None, None
-
-
-#   Fetch benchmark data from yfinance
-@st.cache_data
-def fetch_benchmark_data(benchmark_ticker, period):
-    """
-    Fetch historical benchmark data from yfinance for the selected period.
-    """
-    benchmark = yf.Ticker(benchmark_ticker)
-    return benchmark.history(period=period)["Close"]
-
-
-# Fetch historical data from yfinance
-@st.cache_data(show_spinner=True)
-def fetch_historical_data(ticker, period):
-    asset = yf.Ticker(ticker)
-    return asset.history(period=period)["Close"]
-
-
-# Calculate performance from price data
-@st.cache_data(show_spinner=True)
-# Function to calculate performance from price data
-def calculate_performance(prices):
-    return (prices / prices.iloc[0] - 1) * 100  # Return percentage performance
-
-
-# Calculate the weighted returns for the portfolio
-@st.cache_data
-def calculate_weighted_returns(assets, allocations, period):
-    asset_returns = pd.DataFrame()
-    for asset, allocation in zip(assets, allocations):
-        data = fetch_historical_data(asset, period)
-        asset_returns[asset] = data.pct_change() * allocation
-    portfolio_returns = asset_returns.sum(axis=1)
-    return portfolio_returns.dropna()
-
-
-@st.cache_data
-def display_metrics_table(metrics):
-    """
-    Display the calculated metrics in a Streamlit table.
-    """
-    metrics_df = pd.DataFrame(metrics, index=[0])
-    st.table(metrics_df)
 
 
 # The main function that runs the dashboard.
@@ -145,7 +48,7 @@ def dashboard():
         st.header("Portfolio Simulator")
 
     # Main layout with two columns: one for input and one for visualization
-    main_col1, main_col2 = st.columns([2, 5])
+    main_col1, main_col2, main_col3 = st.columns([3, 6, 2])
 
     # Left Column: Handle asset input and portfolio management
     with main_col1:
@@ -168,6 +71,7 @@ def dashboard():
             # Add Asset functionality inside a popover
             with form_header_col2:
                 with st.popover(label="+ Add Asset"):
+
                     st.write("#### Add Asset to Portfolio")
                     new_asset = st.text_input(
                         "Add new asset (ticker symbol)", key="new_asset_ticker"
@@ -193,7 +97,9 @@ def dashboard():
                                     st.session_state.assets[quote_type] = []
                                 st.session_state.assets[quote_type].append(new_asset)
                                 st.success(f"Added {new_asset} ({quote_type})")
+                                st.session_state.generate_chart = False
                                 st.rerun()
+            st.divider()
 
             # If there are assets in the portfolio, show the allocation inputs
             if st.session_state.assets:
@@ -297,6 +203,7 @@ def dashboard():
                             st.session_state.total_allocation
                         )
                 grand_total_exceeded = st.session_state.grand_total_allocation > 100.0
+                grand_total_low = st.session_state.grand_total_allocation < 100.0
                 # Remove all assets or submit the portfolio
                 remove_all_assets = st.button(
                     label="Remove All Assets", type="primary", use_container_width=True
@@ -306,12 +213,17 @@ def dashboard():
                     type="primary",
                     use_container_width=True,
                     disabled=grand_total_exceeded
+                    or grand_total_low
                     or st.session_state.grand_total_allocation == 0.0,
                     key="submit_portfolio",
                 )
                 if grand_total_exceeded:
                     st.error(
                         "Total allocation across all assets exceeds 100%. Please adjust to continue."
+                    )
+                if grand_total_low:
+                    st.error(
+                        "Total allocation across all assets is less than 100%. Please adjust to continue."
                     )
 
                 if st.session_state.grand_total_allocation == 0.0:
@@ -331,48 +243,45 @@ def dashboard():
                 # If no assets added, prompt the user to add some
                 st.info("No assets added. Click '+ Add Asset' to build your portfolio.")
 
-    # Right Column: This will eventually show the portfolio simulator once the user has added assets
-    # with main_col2:
-    #     st.write("qwertyuio")
-
     with main_col2:
         with st.container(border=True, key="performance_chart"):
             st.write("#### Performance")
+            st.divider()
 
-            perf_col1, perf_col2 = st.columns([1, 1])
-            with perf_col1:
-                benchmark_index = st.selectbox(
-                    label="Select Benchmark Index",
-                    options=["^GSPC", "^IXIC", "^DJI", "^RUT"],
-                    # Add more as needed
-                    index=0,  # Default to S&P 500
-                    format_func=lambda x: {
-                        "^GSPC": "S&P 500",
-                        "^IXIC": "Nasdaq Composite",
-                        "^DJI": "Dow Jones Industrial Average",
-                        "^RUT": "Russell 2000",
-                    }.get(
-                        x, x
-                    ),  # Display friendly names
-                )
-            with perf_col2:
-                period = st.radio(
-                    label="Select period",
-                    options=[
-                        "1mo",
-                        "6mo",
-                        "1y",
-                        "5y",
-                        "10y",
-                        "ytd",
-                        "max",
-                    ],
-                    index=6,  # Default selection
-                    horizontal=True,  # Optional: display options horizontally
-                )
-
+            if st.session_state.generate_chart:
+                perf_col1, perf_col2 = st.columns(spec=2)
+                with perf_col1:
+                    benchmark_index = st.selectbox(
+                        label="Select Benchmark Index",
+                        options=["^GSPC", "^IXIC", "^DJI", "^RUT"],
+                        index=0,
+                        format_func=lambda x: {
+                            "^GSPC": "S&P 500",
+                            "^IXIC": "Nasdaq Composite",
+                            "^DJI": "Dow Jones Industrial Average",
+                            "^RUT": "Russell 2000",
+                        }.get(x, x),
+                    )
+                with perf_col2:
+                    period = st.radio(
+                        label="Select period",
+                        options=[
+                            "1mo",
+                            "6mo",
+                            "1y",
+                            "5y",
+                            "10y",
+                            "ytd",
+                            "max",
+                        ],
+                        index=6,
+                        horizontal=True,
+                    )
+            chart = st.empty()
+            chart2 = st.empty()
+            chart3 = st.empty()
             if not st.session_state.generate_chart:
-                placeholder_chart()
+                chart = placeholder_chart()
             else:
                 # Get the submitted portfolio and calculate performance
                 benchmark_data = fetch_benchmark_data(
@@ -384,11 +293,28 @@ def dashboard():
                 )
 
                 # Generate and display the cumulative returns plot
-                plot_cumulative_returns(
+                chart = plot_cumulative_returns(
                     portfolio_returns=portfolio_returns,
                     benchmark_returns=benchmark_data.pct_change(),
                     benchmark_name=benchmark_index,
                 )
+
+    with main_col3:
+        with st.container(border=True, key="metrics_table"):
+            st.write("#### Results")
+            st.divider()
+
+            # Calculate and display the metrics table
+            if not st.session_state.generate_chart:
+                st.info("Add and save assets to view performance metrics.")
+            else:
+                portfolio_returns = calculate_weighted_returns(
+                    selected_assets, allocations, period
+                )
+                metrics = calculate_metrics(
+                    portfolio_returns, benchmark_data.pct_change()
+                )
+                display_metrics_table(metrics)
 
 
 # Run the app

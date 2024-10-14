@@ -1,5 +1,4 @@
 import time
-import uuid
 
 import streamlit as st
 
@@ -91,20 +90,22 @@ def dashboard():
         message_placeholder.warning(
             "Please wait, the initial calculations may take some time..."
         )
+        with st.spinner("Calculating..."):
+            # Display the large data chart first (cached)
+            large_data_fig = generate_large_chart(
+                title="Complex Calculation Result (FFT)"
+            )
+            plot_placeholder.plotly_chart(large_data_fig)
+            # time.sleep(3)
 
-        # Display the large data chart first (cached)
-        large_data_fig = generate_large_chart(title="Complex Calculation Result (FFT)")
-        plot_placeholder.plotly_chart(large_data_fig)
-        # time.sleep(3)
+            # Display additional random charts (cached)
+            random_chart_1 = generate_random_chart(title="Random Chart 1")
+            plot_placeholder.plotly_chart(random_chart_1, key="random_chart_1")
+            # time.sleep(3)
 
-        # Display additional random charts (cached)
-        random_chart_1 = generate_random_chart(title="Random Chart 1")
-        plot_placeholder.plotly_chart(random_chart_1, key="random_chart_1")
-        # time.sleep(3)
-
-        random_chart_2 = generate_random_chart(title="Random Chart 2")
-        plot_placeholder.plotly_chart(random_chart_2, key="random_chart_2")
-        # time.sleep(3)
+            random_chart_2 = generate_random_chart(title="Random Chart 2")
+            plot_placeholder.plotly_chart(random_chart_2, key="random_chart_2")
+            # time.sleep(3)
 
         # Update the message to indicate heavy processing is finished
         message_placeholder.success(

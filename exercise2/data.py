@@ -7,9 +7,8 @@ exchange = ccxt.binance()
 
 
 # Added st.cache_data decorator to fetch_binance_ohlcv function to cache the data and improve the performance of the application.
-# Ttl parameter is set to 10 seconds, the show_spinner parameter is set to True to display a spinner while the data is being fetched.
-# Persist parameter is set to "disk" to store the cached data on disk.
-@st.cache_data(show_spinner=True, persist=True)
+# show_spinner parameter is set to True to display a spinner while the data is being fetched.
+@st.cache_data(show_spinner=True)
 def fetch_binance_ohlcv(  # Renamed fetch_ohlcv to fetch_binance_ohlcv to be more precise what exchange is used.
     coin: str, timeframe: str = "1m", limit: int = 100
 ) -> pd.DataFrame:
