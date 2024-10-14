@@ -2,77 +2,89 @@ import numpy as np
 import pandas as pd
 
 
-def calculate_daily_returns(prices: pd.DataFrame) -> pd.DataFrame:
-    # Calculate daily returns from price data
-    return prices.pct_change().dropna()
+# Function to calculate the required metrics
+def calculate_metrics(portfolio_returns, benchmark_returns, risk_free_rate=0.01):
+    """
+    Calculate risk and performance metrics for the portfolio.
+    """
+    # Join the portfolio and benchmark returns
+    data = pd.DataFrame(
+        {"portfolio": portfolio_returns, "benchmark": benchmark_returns}
+    ).dropna()
 
+    # Cumulative Returns
+    cumulative_returns = (1 + data["portfolio"]).cumprod() - 1
 
-def calculate_weighted_returns(daily_returns: pd.DataFrame,
-                               weights: np.ndarray) -> pd.Series:
-    # Calculate portfolio weighted returns based on asset weights
-    return daily_returns.mul(weights, axis=1).sum(axis=1)
+    # Annualized Returns
+    annual_returns = (
+        data["portfolio"].mean() * 252
+    )  # Assuming 252 trading days in a year
 
+    # Annual Volatility
+    annual_volatility = data["portfolio"].std() * np.sqrt(252)
 
-def calculate_cumulative_returns(prices: pd.DataFrame,
-                                 weights: np.ndarray) -> pd.Series:
-    # Calculate the cumulative returns of a portfolio.
-    daily_returns = calculate_daily_returns(prices)
-    weighted_returns = calculate_weighted_returns(daily_returns, weights)
-    return (1 + weighted_returns).cumprod() - 1
+    # Maximum Drawdown
+    cumulative_max = (1 + data["portfolio"]).cummax()
+    max_drawdown = ((cumulative_max - (1 + data["portfolio"])) / cumulative_max).max()
 
+    # Sharpe Ratio
+    sharpe_ratio = (annual_returns - risk_free_rate) / annual_volatility
 
-def calculate_var_95(weighted_returns: pd.Series) -> float:
-    # Calculate the 95% Value at Risk (VaR) for the portfolio.
-    return np.percentile(weighted_returns, 5)
+    # Sortino Ratio (only considering negative volatility)
+    downside_std = data["portfolio"][data["portfolio"] < 0].std() * np.sqrt(252)
+    sortino_ratio = (
+        (annual_returns - risk_free_rate) / downside_std
+        if downside_std != 0
+        else np.nan
+    )
 
+    # Beta (portfolio sensitivity to the benchmark)
+    covariance_matrix = data.cov()
+    beta = (
+        covariance_matrix.loc["portfolio", "benchmark"]
+        / covariance_matrix.loc["benchmark", "benchmark"]
+    )
 
-def calculate_annual_volatility(weighted_returns: pd.Series) -> float:
-    # Calculate the annualized volatility of the portfolio.
-    return weighted_returns.std() * np.sqrt(252)
+    # Alpha (portfolio's excess return over the benchmark)
+    benchmark_annual_returns = data["benchmark"].mean() * 252
+    alpha = annual_returns - beta * benchmark_annual_returns
 
+    # Value at Risk (VaR 95%)
+    var_95 = np.percentile(data["portfolio"], 5)
 
-def calculate_max_drawdown(cumulative_returns: pd.Series) -> float:
-    # Calculate the maximum drawdown for the portfolio.
-    rolling_max = cumulative_returns.cummax()
-    drawdown = cumulative_returns - rolling_max
-    return drawdown.min()
+    # Tracking Error
+    tracking_error = np.std(data["portfolio"] - data["benchmark"]) * np.sqrt(252)
 
+    # Information Ratio
+    information_ratio = (
+        (annual_returns - benchmark_annual_returns) / tracking_error
+        if tracking_error != 0
+        else np.nan
+    )
 
-def calculate_risk_metrics(prices: pd.DataFrame, weights: np.ndarray) -> dict:
-    # Calculate risk metrics for a portfolio including VaR, annual volatility, and max drawdown.
+    # Hit Ratio (percentage of periods where portfolio outperformed the benchmark)
+    hit_ratio = (data["portfolio"] > data["benchmark"]).mean()
 
-    daily_returns = calculate_daily_returns(prices)
-    weighted_returns = calculate_weighted_returns(daily_returns, weights)
-
-    cumulative_returns = (1 + weighted_returns).cumprod()
+    # Rolling Hit Ratio (calculated over a rolling window of 20 periods, for example)
+    rolling_hit_ratio = (
+        data["portfolio"]
+        .rolling(window=20)
+        .apply(lambda x: (x > data["benchmark"].rolling(window=20).mean()).mean())
+        .mean()
+    )
 
     return {
-        "VaR 95%": calculate_var_95(weighted_returns),
-        "Annual Volatility": calculate_annual_volatility(weighted_returns),
-        "Max Drawdown": calculate_max_drawdown(cumulative_returns)
+        "Cumulative Returns": cumulative_returns.iloc[-1],
+        "Annual Returns": annual_returns,
+        "Annual Volatility": annual_volatility,
+        "Max Drawdown": max_drawdown,
+        "Sharpe Ratio": sharpe_ratio,
+        "Sortino Ratio": sortino_ratio,
+        "Beta": beta,
+        "Alpha": alpha,
+        "VaR 95%": var_95,
+        "Tracking Error": tracking_error,
+        "Information Ratio": information_ratio,
+        "Hit Ratio": hit_ratio,
+        "Rolling Hit Ratio": rolling_hit_ratio,
     }
-
-
-import pandas as pd
-
-
-def filter_data_by_time_period(data, time_filter):
-    # Filters the data based on the selected time filter.
-
-    if time_filter == '1D':
-        return data.tail(1)  # Last day
-    elif time_filter == '1W':
-        return data.last('7D')  # Last week
-    elif time_filter == '1M':
-        return data.last('1M')  # Last month
-    elif time_filter == '6M':
-        return data.last('6M')  # Last 6 months
-    elif time_filter == 'YTD':
-        start_of_year = pd.Timestamp.now().replace(month=1, day=1)
-        return data.loc[start_of_year:]
-    elif time_filter == '1Y':
-        return data.last('1Y')  # Last year
-    elif time_filter == 'Max':
-        return data  # Full data range
-    else:
-        return data  # Default to full data if unknown filter
